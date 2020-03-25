@@ -16,7 +16,8 @@ class StageToRedshiftOperator(BaseOperator):
         REGION '{}'
         TIMEFORMAT as 'epochmillisecs'
         {} 'auto'
-        TRUNCATECOLUMNS BLANKSASNULL EMPTYASNULL;
+        TRUNCATECOLUMNS BLANKSASNULL EMPTYASNULL
+        {};
     """
     #template variable used for formatting s3 path in execute function
     template_fields = ('s3_key',)
@@ -38,7 +39,7 @@ class StageToRedshiftOperator(BaseOperator):
         aws_credentials_id -- AWS connection ID configured in Airflow/admin/connection UI (str)
         s3_bucket -- AWS S3 bucket name (str)
         s3_key -- AWS S3 bucket data directory/file (str)
-        file_format -- File format for AWS S3 files  (e.g. 'JSON', 'CSV', 'XLSX') (str)
+        file_format -- File format for AWS S3 files  (currently only: 'JSON' or 'CSV') (str)
         table -- AWS S3 table to extract from (str)
         """
         super(StageToRedshiftOperator, self).__init__(*args, **kwargs)
@@ -57,14 +58,18 @@ class StageToRedshiftOperator(BaseOperator):
         Keyword Argument:
         context -- DAG context dictionary
         """
+
         self.log.info('StageToRedshiftOperator instantiating AWS and Redshift connection variables')
         redshift = PostgresHook(self.redshift_conn_id)
         aws = AwsHook(self.aws_credentials_id)
         credentials = aws.get_credentials()
-        
+
+        extra_parameters = ''
+        if self.file_format.upper() == 'CSV':
+            extra_parameters = " DELIMETER ',' IGNOREHEADER 1 "
+
         #Formats s3 key with context dictionary
         rendered_key = self.s3_key.format(**context)
-        
         s3_path = 's3://{}/{}'.format(self.s3_bucket, rendered_key)
         
         formatted_copy_sql = StageToRedshiftOperator.copy_sql.format(
@@ -73,7 +78,8 @@ class StageToRedshiftOperator(BaseOperator):
             credentials.access_key,
             credentials.secret_key,
             self.region,
-            self.file_format
+            self.file_format,
+            extra_parameters
         )
         
         redshift.run(formatted_copy_sql)
